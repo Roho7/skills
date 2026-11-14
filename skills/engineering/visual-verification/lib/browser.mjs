@@ -175,7 +175,7 @@ export const LEGIBLE_TEXT_PX = 6;
 export const MIN_SCALE = 0.5;
 
 export async function smallestTextPx(p, fullPage) {
-  return p.evaluate((fullPage) => {
+  return p.evaluate((whole) => {
     let smallest = Infinity;
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -185,7 +185,7 @@ export async function smallestTextPx(p, fullPage) {
       if (style.visibility === 'hidden' || Number(style.opacity) === 0) continue;
       const rect = el.getBoundingClientRect();
       if (!rect.width || !rect.height) continue;
-      if (!fullPage && (rect.bottom < 0 || rect.top > innerHeight)) continue;
+      if (!whole && (rect.bottom < 0 || rect.top > innerHeight)) continue;
       smallest = Math.min(smallest, parseFloat(style.fontSize));
     }
     return Number.isFinite(smallest) ? smallest : null;
@@ -197,9 +197,9 @@ export function legibleScale(smallest) {
 }
 
 async function capture(p, { fullPage, scale }) {
-  const clip = await p.evaluate((fullPage) => {
+  const clip = await p.evaluate((whole) => {
     const doc = document.documentElement;
-    return fullPage
+    return whole
       ? { x: 0, y: 0, width: doc.scrollWidth, height: doc.scrollHeight }
       : { x: visualViewport.pageLeft, y: visualViewport.pageTop, width: innerWidth, height: innerHeight };
   }, fullPage);

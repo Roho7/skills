@@ -47,7 +47,7 @@ async function publish(positional, flags) {
     if (!IMAGE_EXT.test(file)) throw new OpError(`Not an image: ${file}`, 'Publish .png, .jpg, .gif or .webp files only.');
   }
 
-  const repo = await resolveRepoSlug();
+  const slug = await resolveRepoSlug();
   const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD']);
   const folder = `${branch.replace(/[^\w.-]+/g, '-')}/${new Date().toISOString().replace(/[:.]/g, '-')}`;
 
@@ -62,7 +62,7 @@ async function publish(positional, flags) {
 
   const images = files.map((file) => {
     const name = path.basename(file);
-    return { file, url: `https://github.com/${repo}/blob/${commit}/${folder}/${name}?raw=true`, markdown: `![${flags.title ?? name}](https://github.com/${repo}/blob/${commit}/${folder}/${name}?raw=true)` };
+    return { file, url: `https://github.com/${slug}/blob/${commit}/${folder}/${name}?raw=true`, markdown: `![${flags.title ?? name}](https://github.com/${slug}/blob/${commit}/${folder}/${name}?raw=true)` };
   });
   const markdown = images.map((i) => i.markdown).join('\n\n');
 
