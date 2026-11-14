@@ -1,0 +1,62 @@
+# rohostack
+
+My fork of [pstack](https://github.com/cursor/plugins/tree/main/pstack): `/roho-mode` runs playbooks for bugs, features, perf, reviews and PRs, with principle skills it cites. Start with `/roho-help`.
+
+- **[architect](./architect/SKILL.md)**: Sketch types, signatures, and module structure before code, then stay in the loop while implementation fills in. User-invoked.
+- **[arena](./arena/SKILL.md)**: Spawn N parallel candidates at the same task, pick a base, graft the strongest parts of the losers into it. User-invoked.
+- **[automate-me](./automate-me/SKILL.md)**: Use for \"automate me\", \"create/update/refresh my -mode skill\", \"turn/capture my preferences or working style into a skill\", or wanting agents to follow how the user works. User-invoked.
+- **[benchmark-checklist](./benchmark-checklist/SKILL.md)**: Vet a perf measurement (limiter, tuning, limits, errors, repeatability, relevance, and whether the work happened) before you report or act on it. User-invoked.
+- **[blast-radius](./blast-radius/SKILL.md)**: Find what a change could break somewhere else before it ships, beyond the diff, and prove the one fact it's safe because of by running real code instead of writing it up. User-invoked.
+- **[bro](./bro/SKILL.md)**: Restate the last message in plain human language, with no jargon. User-invoked.
+- **[correct](./correct/SKILL.md)**: Find the mistakes agents keep repeating in this repo and make each one impossible. User-invoked.
+- **[create-formal-verification-skill](./create-formal-verification-skill/SKILL.md)**: Generate a project-local skill that formally verifies the code where a bug costs the most and tests reach the least, in any language, with whichever verification tool fits. User-invoked.
+- **[create-verification-skill](./create-verification-skill/SKILL.md)**: Generate a project-local verification skill that drives your app the way a user does — any language, framework, or platform. User-invoked.
+- **[figure-it-out](./figure-it-out/SKILL.md)**: Design an auditable playbook when no narrower one fits: a large migration, an ambitious multi-part change, or work a human reviews after stepping away. User-invoked.
+- **[how](./how/SKILL.md)**: Use for \"how does X work\", code walkthroughs before changing something, and placement / ownership / layering questions (\"where should this live\", \"which package owns this\", \"is this the right layer\"). User-invoked.
+- **[in-your-own-words](./in-your-own-words/SKILL.md)**: Restate in your own words what you think the user's goals are and what problem they're trying to solve. User-invoked.
+- **[interrogate](./interrogate/SKILL.md)**: Use for \"interrogate\", \"adversarial review\", \"multi-model review\", \"challenge this\", \"stress test this code\", \"find blind spots\", or \"tear this apart\". User-invoked.
+- **[ketchup](./ketchup/SKILL.md)**: Catch the user up on what changed in this chat since their last message, in plain words and small visuals. User-invoked.
+- **[ketchup-video](./ketchup-video/SKILL.md)**: Catch the user up like /ketchup, with a short subtitled video of slides for what happened and the waiting calls as text under it. User-invoked.
+- **[maintain-formal-verification-skill](./maintain-formal-verification-skill/SKILL.md)**: Bring a project's formal verification back in line with the code after the code changes: find the commits that touched verified code, update the model, harness, or properties to describe the code as it is now, rerun, and say whether each failure is drift in the verification or a bug in the code. User-invoked.
+- **[maintain-verification-skill](./maintain-verification-skill/SKILL.md)**: Periodic pass that keeps a project's verification skill and feature map honest: parallel source readers per feature, one live session driving every feature, at most one PR of proven corrections. User-invoked.
+- **[make-bot-ui](./make-bot-ui/SKILL.md)**: Use when building a custom UI (page, dashboard, buttons) that should wake a Grok Bot over a webhook, when the user must provide a webhook sender key, or when exposing that UI on Tailscale. User-invoked.
+- **[no-comments](./no-comments/SKILL.md)**: Spawn Comment Sicko, fix accepted findings, and offer encodings for claimed constraints. User-invoked.
+- **[principle-attack-the-premise](./principle-attack-the-premise/SKILL.md)**: Apply when two or more fixes that share one premise have failed the same gate. User-invoked.
+- **[principle-boundary-discipline](./principle-boundary-discipline/SKILL.md)**: Apply when wiring validation, error handling, or framework adapters. User-invoked.
+- **[principle-build-the-lever](./principle-build-the-lever/SKILL.md)**: Apply to any non-trivial work, not just bulk work: edits, migrations, analyses, checks. User-invoked.
+- **[principle-encode-lessons-in-structure](./principle-encode-lessons-in-structure/SKILL.md)**: Apply when you catch yourself writing the same instruction a second time, or notice a recurring correction. User-invoked.
+- **[principle-exhaust-the-design-space](./principle-exhaust-the-design-space/SKILL.md)**: Apply when facing a novel UI interaction or architectural decision with no precedent in the codebase. User-invoked.
+- **[principle-experience-first](./principle-experience-first/SKILL.md)**: Apply when product, UX, or feature-scope tradeoffs come up. User-invoked.
+- **[principle-explain-the-number](./principle-explain-the-number/SKILL.md)**: Apply before you measure, and before you trust, report, or act on a number you measured: a speedup, a regression, a throughput, a latency, or an eval result. User-invoked.
+- **[principle-fix-root-causes](./principle-fix-root-causes/SKILL.md)**: Apply when debugging. User-invoked.
+- **[principle-foundational-thinking](./principle-foundational-thinking/SKILL.md)**: Apply before writing logic: choosing core types and data structures, sequencing scaffold-vs-feature work, asking what concurrent actors share. User-invoked.
+- **[principle-guard-the-context-window](./principle-guard-the-context-window/SKILL.md)**: Apply when context is filling up: large outputs, long files, repeated reads, fan-out planning. User-invoked.
+- **[principle-laziness-protocol](./principle-laziness-protocol/SKILL.md)**: Apply when refactoring, evaluating diff size, or tempted to add abstractions, layers, or signal threading. User-invoked.
+- **[principle-make-operations-idempotent](./principle-make-operations-idempotent/SKILL.md)**: Apply when designing commands, lifecycle steps, or processing loops that run amid crashes, restarts, and retries. User-invoked.
+- **[principle-migrate-callers-then-delete-legacy-apis](./principle-migrate-callers-then-delete-legacy-apis/SKILL.md)**: Apply when introducing a new internal API while old callers still exist. User-invoked.
+- **[principle-minimize-reader-load](./principle-minimize-reader-load/SKILL.md)**: Apply when reviewing or shaping code that's hard to trace. User-invoked.
+- **[principle-model-the-domain](./principle-model-the-domain/SKILL.md)**: Apply when writing stateful logic, or when code branches a lot or repeats a shape assumption across files. User-invoked.
+- **[principle-never-block-on-the-human](./principle-never-block-on-the-human/SKILL.md)**: Apply when tempted to ask 'should I do X?' on reversible work. User-invoked.
+- **[principle-outcome-oriented-execution](./principle-outcome-oriented-execution/SKILL.md)**: Apply during planned rewrites and migrations with explicit phase boundaries. User-invoked.
+- **[principle-prove-it-works](./principle-prove-it-works/SKILL.md)**: Apply after completing a task, before declaring done. User-invoked.
+- **[principle-redesign-from-first-principles](./principle-redesign-from-first-principles/SKILL.md)**: Apply when integrating a new requirement into an existing design. User-invoked.
+- **[principle-separate-before-serializing-shared-state](./principle-separate-before-serializing-shared-state/SKILL.md)**: Apply when concurrent actors might write to the same file, branch, key, or state object. User-invoked.
+- **[principle-sequence-verifiable-units](./principle-sequence-verifiable-units/SKILL.md)**: Apply to multi-step work (sweeps, migrations, runs of similar edits) and to how you stack commits and PRs. User-invoked.
+- **[principle-subtract-before-you-add](./principle-subtract-before-you-add/SKILL.md)**: Apply when sequencing an addition, refactor, or rewrite. User-invoked.
+- **[principle-test-behavior-not-implementation](./principle-test-behavior-not-implementation/SKILL.md)**: Apply when you write, change, or keep a test. User-invoked.
+- **[principle-type-system-discipline](./principle-type-system-discipline/SKILL.md)**: Apply when designing types, reviewing a function signature, or writing code in any statically-typed language. User-invoked.
+- **[recall](./recall/SKILL.md)**: Reconstruct your recent working context from your own chat history, live state, and the shared record (user reports, prior fixes, incidents), then hand back a tight current-state brief. User-invoked.
+- **[reflect](./reflect/SKILL.md)**: Spawn three parallel review subagents over the active transcript, surface learnings, and route each to a concrete edit on an existing skill. User-invoked.
+- **[roho-help](./roho-help/SKILL.md)**: Guides users through rohostack setup, /roho-mode, and picking the skill, playbook, or principle for a task. User-invoked.
+- **[roho-mode](./roho-mode/SKILL.md)**: roho's agent style for concise, detailed responses, deliberate subagents, unslopped prose, simple code, and verified work. User-invoked.
+- **[rohostack-teach](./rohostack-teach/SKILL.md)**: Explain a body of work plainly so a person actually understands it. User-invoked.
+- **[setup-rohostack](./setup-rohostack/SKILL.md)**: Configure which models rohostack uses per role and at what reasoning budget.
+- **[sharpen](./sharpen/SKILL.md)**: Make a task deeper, not bigger, then rewrite the prompt. User-invoked.
+- **[show-me-your-work](./show-me-your-work/SKILL.md)**: Keep a reviewable decision trail for long-running or unattended work: a TSV log with one row per decision (what, why, evidence, result). User-invoked.
+- **[statechart](./statechart/SKILL.md)**: Check a TLA+ model of a system that moves between states, such as a product flow, a protocol, or a service, and draw it as a Mermaid statechart. User-invoked.
+- **[swarm](./swarm/SKILL.md)**: Fan out N parallel workers, drain them, and return one report. User-invoked.
+- **[tdd](./tdd/SKILL.md)**: Use only when the user explicitly asks for TDD, a failing test, or a regression test, OR when the bug has an obvious cheap local test target. User-invoked.
+- **[technical-writing](./technical-writing/SKILL.md)**: Layered technical-writing standard: Diátaxis structure, Google developer style sentences, STE instruction rules, Global English syntax. User-invoked.
+- **[typescript-best-practices](./typescript-best-practices/SKILL.md)**: TypeScript best practices. User-invoked.
+- **[unslop](./unslop/SKILL.md)**: Cut AI tells from any writing. User-invoked.
+- **[why](./why/SKILL.md)**: Use for 'why does X work this way', 'why we picked Y', design rationale, regressions, postmortems, or data-backed thresholds. User-invoked.
