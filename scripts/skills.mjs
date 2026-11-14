@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// node scripts/skills.mjs check                         lint every public skill, fail if generated files are stale (CI)
+// node scripts/skills.mjs check                         lint every public skill and its .mjs (eslint), fail if generated files are stale (CI)
 // node scripts/skills.mjs sync                          rewrite bucket READMEs, the README skill list and marketplace.json
 // node scripts/skills.mjs graduate <name> <bucket>      move library/skills/<group>/<name> here, leave a symlink behind
 // node scripts/skills.mjs graduate --group <group>      move a whole library group (and library/agents/<group>) to skills/<group>
 // A vendored skill (in library/vendor.lock.json) graduates only with --fork, after you changed it.
+import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -160,6 +161,8 @@ function check() {
     console.error(problems.join("\n"));
     process.exit(1);
   }
+  const eslint = spawnSync("npx", ["--no-install", "eslint", "."], { cwd: repo, stdio: "inherit" });
+  if (eslint.status !== 0) process.exit(1);
   console.log(`ok: ${skills.length} skills in ${new Set(skills.map((s) => s.bucket)).size} buckets`);
 }
 
