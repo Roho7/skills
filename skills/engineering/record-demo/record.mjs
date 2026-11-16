@@ -33,7 +33,7 @@
 // look like a jittery bot. The recorded video is saved to --out.
 
 import { readFile } from "node:fs/promises";
-import { rename, mkdir } from "node:fs/promises";
+import { mkdir, rename } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 function parseArgs(argv) {

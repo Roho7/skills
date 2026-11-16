@@ -1,5 +1,5 @@
-import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';

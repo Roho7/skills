@@ -1,8 +1,9 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { CHROME_PROFILE_DIR, CONFIG_FILE, SKILL_DIR, STATE_DIR, config, isPortOpen, repo } from './core.mjs';
+
 import { chromeExecutable, profileHolder } from './browser.mjs';
+import { CHROME_PROFILE_DIR, config, CONFIG_FILE, isPortOpen, repo, SKILL_DIR, STATE_DIR } from './core.mjs';
 
 const MIN_NODE_MAJOR = 20;
 

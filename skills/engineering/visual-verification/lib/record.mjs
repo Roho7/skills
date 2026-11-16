@@ -1,8 +1,9 @@
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { OpError, SKILL_DIR, pidAlive, readJson, run, stateFile, writeJson } from './core.mjs';
+
 import { legibleScale, page, smallestTextPx, tabId } from './browser.mjs';
+import { OpError, pidAlive, readJson, run, SKILL_DIR, stateFile, writeJson } from './core.mjs';
 
 const STATE = () => stateFile('recording.json');
 const MAX_GAP_S = 1.5;

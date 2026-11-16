@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { OpError, REPO_ROOT, repo, run } from './core.mjs';
+import { OpError, repo, REPO_ROOT, run } from './core.mjs';
 
 const ASSET_BRANCH = 'agent-screenshots';
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;

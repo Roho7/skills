@@ -1,7 +1,8 @@
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
-import { OpError, config, isPortOpen, pidAlive, readJson, writeJson, stateFile, relPath, requireAuth, SKILL_DIR, CHROME_PROFILE_DIR } from './core.mjs';
+
+import { CHROME_PROFILE_DIR, config, isPortOpen, OpError, pidAlive, readJson, relPath, requireAuth, SKILL_DIR, stateFile, writeJson } from './core.mjs';
 
 export const STATE = () => stateFile('browser.json');
 export const VIEWPORTS = { desktop: { width: 1440, height: 900 }, mobile: { width: 390, height: 844 } };
@@ -124,18 +125,57 @@ function toUrl(target, flags) {
   return new URL(target.startsWith('/') ? target : `/${target}`, base).toString();
 }
 
+function watch(p) {
+  const consoleErrors = [];
+  const failedRequests = [];
+  let threw = false;
+  const listeners = {
+    console: (m) => m.type() === 'error' && consoleErrors.push(m.text().slice(0, 300)),
+    pageerror: (e) => {
+      threw = true;
+      consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`);
+    },
+    requestfailed: (r) => failedRequests.push({ url: r.url(), error: r.failure()?.errorText }),
+    response: (r) => r.status() >= 400 && failedRequests.push({ url: r.url(), status: r.status() }),
+  };
+  for (const [event, fn] of Object.entries(listeners)) p.on(event, fn);
+  return () => {
+    for (const [event, fn] of Object.entries(listeners)) p.off(event, fn);
+    return {
+      ...(threw ? { ok: false, error: 'The page threw during this action (see consoleErrors)' } : {}),
+      consoleErrors: consoleErrors.slice(0, 20),
+      failedRequests: failedRequests.slice(0, 20),
+    };
+  };
+}
+
+async function openedPage() {
+  const p = await page();
+  if (p.url() === 'about:blank') throw new OpError('No page is open', 'Run `shot open <path>` first.');
+  return p;
+}
+
+async function settle(p, finishWatch) {
+  await p.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+  const openDialogs = await p.getByRole('dialog').evaluateAll((els) => els.map((el) => (el.getAttribute('aria-label') || el.querySelector('h1,h2,h3')?.textContent || '').trim()).filter(Boolean));
+  return { url: p.url(), openDialogs, ...finishWatch(), next: openDialogs.length ? 'shot snapshot --selector "[role=dialog]"' : 'shot snapshot' };
+}
+
+async function focused(p) {
+  const el = p.locator('*:focus').first();
+  if ((await el.count()) === 0) return null;
+  const line = (await el.ariaSnapshot().catch(() => '')).split('\n')[0];
+  const [, role = null, name = ''] = line.match(/^- (\w+)(?: "((?:[^"\\]|\\.)*)")?/) ?? [];
+  const selector = await el.evaluate((n) => n.tagName.toLowerCase() + (n.id ? `#${n.id}` : n.getAttribute('name') ? `[name="${n.getAttribute('name')}"]` : ''));
+  return { role, name, selector };
+}
+
 async function open(positional, flags) {
   const target = positional[0];
   if (!target) throw new OpError('Missing path or URL', 'Usage: shot open /products [--mobile]');
   rememberViewport(flags.mobile ? 'mobile' : 'desktop');
   const p = await page();
-
-  const consoleErrors = [];
-  const failedRequests = [];
-  p.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text().slice(0, 300)));
-  p.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`));
-  p.on('requestfailed', (r) => failedRequests.push({ url: r.url(), error: r.failure()?.errorText }));
-  p.on('response', (r) => r.status() >= 400 && failedRequests.push({ url: r.url(), status: r.status() }));
+  const finishWatch = watch(p);
 
   const url = toUrl(target, flags);
   const started = Date.now();
@@ -154,15 +194,13 @@ async function open(positional, flags) {
     title: await p.title(),
     ms: Date.now() - started,
     viewport: flags.mobile ? 'mobile' : 'desktop',
-    consoleErrors: consoleErrors.slice(0, 20),
-    failedRequests: failedRequests.slice(0, 20),
+    ...finishWatch(),
     next: 'shot snapshot  |  shot screenshot',
   };
 }
 
 async function snapshot(_positional, flags) {
-  const p = await page();
-  if (p.url() === 'about:blank') throw new OpError('No page is open', 'Run `shot open <path>` first.');
+  const p = await openedPage();
   const selector = flags.selector ?? 'body';
   const loc = p.locator(selector).first();
   if ((await loc.count()) === 0) throw new OpError(`Selector "${selector}" matched nothing`, 'Omit --selector for the whole page, or try "main".');
@@ -213,8 +251,7 @@ async function capture(p, { fullPage, scale }) {
 }
 
 async function screenshot(positional, flags) {
-  const p = await page();
-  if (p.url() === 'about:blank') throw new OpError('No page is open', 'Run `shot open <path>` first.');
+  const p = await openedPage();
   const file = positional[0] ? path.resolve(positional[0]) : stateFile('shots', `${new Date().toISOString().replace(/[:.]/g, '-')}.png`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const fullPage = !!flags.full;
@@ -246,27 +283,106 @@ async function describe(loc) {
   return (await loc.evaluate((el) => (el.getAttribute('aria-label') || el.textContent || el.getAttribute('title') || '').trim().replace(/\s+/g, ' ').slice(0, 80))) || '(no accessible name)';
 }
 
-async function click(positional, flags) {
-  const p = await page();
-  if (p.url() === 'about:blank') throw new OpError('No page is open', 'Run `shot open <path>` first.');
-  const all = locatorFor(p, positional, flags);
+async function pick(all, flags, what) {
   const count = await all.count();
-  if (count === 0) throw new OpError('No matching control', 'Run `shot snapshot` and copy the exact button/link name, or use --selector.');
-  const nth = Number(flags.nth ?? 0);
+  if (count === 0) throw new OpError(`No matching ${what}`, `Run \`shot snapshot\` and copy the exact ${what} name, or use --selector.`);
   if (count > 1 && flags.nth === undefined) {
     const names = await Promise.all(Array.from({ length: Math.min(count, 8) }, (_, i) => describe(all.nth(i))));
-    throw new OpError(`${count} controls match`, `Pick one with --nth 0..${count - 1}. Matches: ${names.join(' | ')}`);
+    throw new OpError(`${count} ${what}s match`, `Pick one with --nth 0..${count - 1}. Matches: ${names.join(' | ')}`);
   }
-  const target = all.nth(nth);
+  return all.nth(Number(flags.nth ?? 0));
+}
+
+async function click(positional, flags) {
+  const p = await openedPage();
+  const target = await pick(locatorFor(p, positional, flags), flags, 'control');
   const label = await describe(target);
   if (unsafeControl().test(label)) {
     throw new OpError(`Refusing to click "${label}"`, 'It may write data or message someone. Verify that path another way, or change refuseClicks in .shot.json.');
   }
   const before = p.url();
+  const finishWatch = watch(p);
   await target.click({ timeout: 10_000 });
-  await p.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
-  const dialogs = await p.getByRole('dialog').evaluateAll((els) => els.map((el) => (el.getAttribute('aria-label') || el.querySelector('h1,h2,h3')?.textContent || '').trim()).filter(Boolean));
-  return { clicked: label, urlBefore: before, url: p.url(), openDialogs: dialogs, next: dialogs.length ? 'shot snapshot --selector "[role=dialog]"' : 'shot snapshot' };
+  return { clicked: label, urlBefore: before, ...(await settle(p, finishWatch)) };
+}
+
+async function type(positional, flags) {
+  const p = await openedPage();
+  const [name, text] = flags.selector ? [null, positional[0]] : positional;
+  if (text === undefined) throw new OpError('Missing field name or text', 'Usage: shot type "Email" "a@b.co"  |  shot type --selector "css" "text"');
+  const exact = !!flags.exact;
+  const all = flags.selector
+    ? p.locator(String(flags.selector))
+    : flags.role
+      ? p.getByRole(String(flags.role), { name, exact })
+      : p.getByRole('textbox', { name, exact }).or(p.getByRole('searchbox', { name, exact })).or(p.getByRole('combobox', { name, exact }));
+  const target = await pick(all, flags, 'field');
+  const finishWatch = watch(p);
+  if (flags.clear) await target.fill('');
+  await target.pressSequentially(String(text));
+  const landed = await target.evaluate((el) => el === document.activeElement);
+  return {
+    typed: String(text),
+    into: name ?? flags.selector,
+    focused: await focused(p),
+    ...(await settle(p, finishWatch)),
+    ...(landed ? {} : { ok: false, error: 'The field lost focus while typing, so the keys went elsewhere (a modal or an inert field?)' }),
+  };
+}
+
+async function enterTargets(p) {
+  return p.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return [];
+    const label = (n) => (n.getAttribute('aria-label') || n.textContent || (n.matches('input[type=submit],input[type=button]') ? n.value : '') || n.getAttribute('title') || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+    const form = el.form ?? el.closest('form');
+    const submitters = form ? [...form.querySelectorAll('button:not([type]), button[type=submit], input[type=submit]')] : [];
+    return [el, ...submitters].map(label).filter(Boolean);
+  });
+}
+
+async function press(positional, flags) {
+  const p = await openedPage();
+  const key = positional[0];
+  if (!key) throw new OpError('Missing key', 'Usage: shot press Tab [--times 3]  |  shot press Shift+Tab  |  shot press Escape');
+  if (/^enter$/i.test(key)) {
+    const unsafe = (await enterTargets(p)).find((label) => unsafeControl().test(label));
+    if (unsafe) throw new OpError(`Refusing to press Enter: it would trigger "${unsafe}"`, 'It may write data or message someone. Verify that path another way, or change refuseClicks in .shot.json.');
+  }
+  const times = Number(flags.times ?? 1);
+  const finishWatch = watch(p);
+  for (let i = 0; i < times; i++) await p.keyboard.press(key);
+  return { pressed: key, times, focused: await focused(p), ...(await settle(p, finishWatch)) };
+}
+
+async function scroll(_positional, flags) {
+  const p = await openedPage();
+  const finishWatch = watch(p);
+  let target = null;
+  if (flags.to || flags.selector) {
+    target = await pick(flags.selector ? p.locator(String(flags.selector)) : p.getByText(String(flags.to), { exact: !!flags.exact }), flags, 'element');
+    await target.scrollIntoViewIfNeeded({ timeout: 10_000 });
+  } else if (flags.by !== undefined) {
+    await p.mouse.wheel(0, Number(flags.by));
+    let last = null;
+    for (let waited = 0; waited < 2000 && last !== (last = await p.evaluate(() => scrollY)); waited += 100) await new Promise((r) => setTimeout(r, 100));
+  } else {
+    throw new OpError('Nothing to scroll to', 'Usage: shot scroll --by 800  |  shot scroll --to "Pricing"  |  shot scroll --selector "css"');
+  }
+  const settled = await settle(p, finishWatch);
+  const position = await p.evaluate(() => ({ scrollY: Math.round(scrollY), scrollHeight: document.documentElement.scrollHeight }));
+  const inView = target ? await target.evaluate((el) => ((r) => r.bottom > 0 && r.top < innerHeight)(el.getBoundingClientRect())) : null;
+  return { ...position, inView, ...settled };
+}
+
+async function expectText(positional, flags) {
+  const p = await openedPage();
+  const name = positional.join(' ');
+  if (!name) throw new OpError('Missing text or name', 'Usage: shot expect "Saved" [--role status] [--gone] [--timeout 10]');
+  const all = flags.role ? p.getByRole(String(flags.role), { name, exact: !!flags.exact }) : p.getByText(name, { exact: !!flags.exact });
+  const started = Date.now();
+  const met = await all.first().waitFor({ state: flags.gone ? 'hidden' : 'visible', timeout: Number(flags.timeout ?? 10) * 1000 }).then(() => true, () => false);
+  return { ok: met, found: (await all.count()) > 0, role: flags.role ?? 'text', name, gone: !!flags.gone, waitedMs: Date.now() - started };
 }
 
 async function reset(_positional, flags) {
@@ -369,7 +485,7 @@ shot browser login
 Quits whichever Chrome holds the shared profile, then starts it headed (${CHROME_PROFILE_DIR},
 override with SHOT_PROFILE) and opens auth.loginPath. A human signs in; the
 session then persists for every checkout that uses this profile. Agents never type
-credentials. Needs the web server up (\`shot up web\`).`,
+credentials. Needs the app's dev server up at baseUrl.`,
     run: login,
   },
   'browser whoami': {
@@ -410,6 +526,48 @@ Returns the URL after the click and any open dialogs (drawers are dialogs).
 Refuses controls whose name matches refuseClicks (default: place/pay/order/submit/apply/
 confirm/save/delete/retrigger/record/checkout/buy/…): they may write data or message someone.`,
     run: click,
+  },
+  type: {
+    summary: 'Type into a text field by accessible name, key by key',
+    booleans: ['exact', 'clear'],
+    usage: `
+shot type "<field name>" "<text>" [--role textbox|searchbox|combobox] [--exact] [--nth N] [--clear]
+shot type --selector "<css>" "<text>" [--clear]
+
+Fires real key events, so input handlers and autocomplete run. --clear empties the field first.
+Returns the field that has focus afterwards, the URL, open dialogs, and console and network errors.`,
+    run: type,
+  },
+  press: {
+    summary: 'Press a key on the focused element; reports which element has focus after',
+    usage: `
+shot press <Key> [--times N]
+
+Keys use Playwright names: Tab, Shift+Tab, Escape, Enter, ArrowDown, Home.
+Returns focused {role, name, selector}, so Tab proves focus order and Escape proves a dialog closes.
+Enter is refused when the focused control, or a submit button of its form, matches refuseClicks.`,
+    run: press,
+  },
+  scroll: {
+    summary: 'Scroll by pixels with the mouse wheel, or bring an element into view',
+    booleans: ['exact'],
+    usage: `
+shot scroll --by <px>
+shot scroll --to "<visible text>" [--exact] [--nth N]
+shot scroll --selector "<css>" [--nth N]
+
+--by sends wheel events, so scroll handlers and lazy loading fire. Returns scrollY, scrollHeight,
+inView (for --to and --selector), and console and network errors.`,
+    run: scroll,
+  },
+  expect: {
+    summary: 'Wait until text or a named role appears (or with --gone, disappears); ok:false on timeout',
+    booleans: ['exact', 'gone'],
+    usage: `
+shot expect "<text>" [--role status|alert|dialog|…] [--exact] [--gone] [--timeout 10]
+
+Use it after an action instead of guessing how long async UI takes to settle.`,
+    run: expectText,
   },
   open: {
     summary: 'Navigate the browser to a path or URL; reports console + network errors',

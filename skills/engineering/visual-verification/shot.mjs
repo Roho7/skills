@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { OpError, parseFlags } from './lib/core.mjs';
 import { commands as browser } from './lib/browser.mjs';
+import { OpError, parseFlags } from './lib/core.mjs';
 import { commands as doctor } from './lib/doctor.mjs';
 import { commands as prImage } from './lib/prImage.mjs';
 import { commands as record } from './lib/record.mjs';
