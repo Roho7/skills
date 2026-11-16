@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+
+import { CDP, playwright, STATE, tabId, VIEWPORTS } from './browser.mjs';
 import { readJson } from './core.mjs';
-import { CDP, STATE, VIEWPORTS, playwright, tabId } from './browser.mjs';
 
 const { dir, tab, scale, viewport, max } = JSON.parse(process.argv[2]);
 const { chromium } = await playwright();

@@ -1,7 +1,8 @@
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
-import { OpError, config, isPortOpen, pidAlive, readJson, writeJson, stateFile, relPath, requireAuth, SKILL_DIR, CHROME_PROFILE_DIR } from './core.mjs';
+
+import { CHROME_PROFILE_DIR, config, isPortOpen, OpError, pidAlive, readJson, relPath, requireAuth, SKILL_DIR, stateFile, writeJson } from './core.mjs';
 
 export const STATE = () => stateFile('browser.json');
 export const VIEWPORTS = { desktop: { width: 1440, height: 900 }, mobile: { width: 390, height: 844 } };
