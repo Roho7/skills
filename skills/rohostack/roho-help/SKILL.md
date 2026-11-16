@@ -113,7 +113,8 @@ Close calls:
 
 Not in rohostack:
 
-- `/deslop`, `control-cli`, and `control-ui` ship in the `cursor-team-kit` plugin.
+- `/deslop`, `control-cli`, and `control-ui` ship in the `cursor-team-kit` plugin. `control-ui` covers only what `shot` leaves out: CPU profiles, traces, heap snapshots, network throttling and Electron windows.
+- `visual-verification` (`shot`), the default browser UI check, ships in the `roho-skills` plugin.
 - `/loop` and `/create-skill` are Cursor built-ins.
 - rohostack has no `/orchestrate` skill. Orchestrate is a `/roho-mode` playbook. If the slash menu shows `/orchestrate`, another plugin provides it.
 

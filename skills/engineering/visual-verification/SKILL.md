@@ -7,6 +7,8 @@ compatibility: Requires Node 20+, Google Chrome or Chromium, ffmpeg, and git; gh
 
 `shot` drives a persistent Chrome (one tab per git worktree), takes screenshots shrunk to the smallest size their text stays legible at, records GIF demos, and publishes images for PRs. Every command prints one JSON object (with `next`) and exits non-zero on failure. `shot <command> --help` has the details.
 
+If the repo has Playwright, Cypress or Storybook tests near the change, run them first, and add a case when the change is testable there. They are the regression gate. `shot` supplies the evidence (snapshots, screenshots, GIFs, PR images) and covers flows the suite doesn't. Don't add a browser test dependency to the project for a one-off probe.
+
 ## Setup
 
 `<skill-dir>` below is the folder holding this `SKILL.md`. `shot` means `node <skill-dir>/shot.mjs`.
@@ -14,6 +16,7 @@ compatibility: Requires Node 20+, Google Chrome or Chromium, ffmpeg, and git; gh
 1. Once per install: `npm --prefix <skill-dir> install` (pulls playwright-core).
 2. `node <skill-dir>/shot.mjs doctor` checks Node 20+, playwright-core, Chrome, ffmpeg/ffprobe, the profile and the config source. Each failed check carries its `fix`.
 3. Optional: `ln -s <skill-dir>/shot.mjs ~/.local/bin/shot` to type `shot` directly (`~/.local/bin` must be on `PATH`).
+4. Start the app with the repo's documented dev command in the background. In a worktree, give it a free port and set `SHOT_BASE_URL` to that port, so two checkouts never share a server. Stop the server when done.
 
 ## Commands
 
@@ -22,10 +25,24 @@ compatibility: Requires Node 20+, Google Chrome or Chromium, ffmpeg, and git; gh
 | `shot open <path\|url> [--mobile]` | Navigate; reports console errors and failed requests. The viewport sticks until the next `open`. |
 | `shot snapshot [--selector main]` | Accessibility tree: assert text and structure with it, not screenshots. |
 | `shot click "<name>" [--nth N] [--selector css]` | Click a button or link; refuses names matching `refuseClicks`. |
+| `shot type "<field>" "<text>" [--clear] [--selector css]` | Type into a field key by key. `ok:false` when the field loses focus, because the keys then went elsewhere. |
+| `shot press <Key> [--times N]` | Press Tab, Shift+Tab, Escape, Enter or arrows; reports which element has focus after. Enter is refused when it would trigger a `refuseClicks` control. |
+| `shot scroll --by <px> \| --to "<text>" \| --selector css` | Scroll with wheel events, or bring an element into view; reports `scrollY` and `inView`. |
+| `shot expect "<text>" [--role r] [--gone] [--timeout 10]` | Wait for text or a named role to appear or disappear; `ok:false` on timeout. |
 | `shot screenshot [file.png] [--full]` | Legible PNG (stays small; `--full-res` only when a human asks). |
 | `shot browser start\|stop\|login\|whoami\|reset` | `stop` closes only this worktree's tab. `login` opens a window for a human to sign in; agents never type credentials. |
 | `shot record start` / `shot record stop` | GIF demo of a flow: drive it between the two. Writes `demo.gif` and `keyframes.png` (6 frames). |
 | `shot pr-image <file>… [--pr N] [--title t]` | Push images to the `agent-screenshots` branch (any repo with a GitHub origin); prints markdown. Anyone who can read the repo can see them, so in a public repo they are public. |
+
+Every command that loads or drives the page (`open`, `click`, `type`, `press`, `scroll`) reports the `consoleErrors` and `failedRequests` seen during that action. An uncaught page exception makes it `ok:false`.
+
+## Prove a UI change
+
+1. Name the observable change first, such as the text, role, URL or dialog that should differ.
+2. For a bug fix, reproduce it on the base first. Run the same `shot` steps in a worktree at the merge base (`git worktree add <dir> <merge-base>`) with the same viewport. Save `before.png` and the `snapshot` output.
+3. On head, run `shot open`, `shot snapshot`, one action, then `shot snapshot` again. Check the named change in the snapshot, not in the PNG. Use `shot expect` when the UI settles asynchronously.
+4. Any `consoleErrors` or `failedRequests` fail the check unless the base shows the same ones.
+5. Save `after.png` and put both images in the PR with `shot pr-image before.png after.png`.
 
 ## Screenshot and GIF for a PR
 
