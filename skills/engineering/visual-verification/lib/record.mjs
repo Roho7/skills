@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { legibleScale, page, smallestTextPx, tabId } from './browser.mjs';
+import { emulation, legibleScale, page, smallestTextPx, tabId } from './browser.mjs';
 import { OpError, pidAlive, readJson, run, SKILL_DIR, stateFile, writeJson } from './core.mjs';
 
 const STATE = () => stateFile('recording.json');
@@ -28,7 +28,8 @@ async function start(_positional, flags) {
   if (current && pidAlive(current.pid)) throw new OpError(`Already recording to ${current.dir} (pid ${current.pid})`, 'Run `shot record stop` first.');
   fs.rmSync(STATE(), { force: true });
   const p = await page();
-  const viewport = p.viewportSize();
+  const { width, height } = emulation();
+  const viewport = { width, height };
   const scale = legibleScale(await smallestTextPx(p, false));
   const dir = flags.dir ? path.resolve(flags.dir) : stateFile('recordings', new Date().toISOString().replace(/[:.]/g, '-'));
   fs.mkdirSync(dir, { recursive: true });

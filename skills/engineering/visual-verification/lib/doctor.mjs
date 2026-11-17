@@ -5,7 +5,7 @@ import path from 'node:path';
 import { chromeExecutable, profileHolder } from './browser.mjs';
 import { CHROME_PROFILE_DIR, config, CONFIG_FILE, isPortOpen, repo, SKILL_DIR, STATE_DIR } from './core.mjs';
 
-const MIN_NODE_MAJOR = 20;
+const MIN_NODE_MAJOR = 22;
 
 function check(name, ok, detail, fix) {
   return { name, ok, detail, ...(ok ? {} : { fix }) };

@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { CDP, playwright, STATE, tabId, VIEWPORTS } from './browser.mjs';
-import { readJson } from './core.mjs';
+import { CDP, playwright, tabId } from './browser.mjs';
 
 const { dir, tab, scale, viewport, max } = JSON.parse(process.argv[2]);
 const { chromium } = await playwright();
@@ -28,19 +27,10 @@ await session.send('Page.enable');
 await session.send('Page.startScreencast', { format: 'jpeg', quality: 90, maxWidth: Math.round(viewport.width * scale), maxHeight: Math.round(viewport.height * scale) });
 fs.writeFileSync(path.join(dir, 'ready'), '');
 
-async function holdViewport() {
-  const want = VIEWPORTS[readJson(STATE(), {}).viewport];
-  if (!want || (await target.evaluate(() => innerWidth).catch(() => want.width)) === want.width) return;
-  await target.setViewportSize(want).catch(() => {});
-}
-await holdViewport();
-const viewportTimer = setInterval(holdViewport, 250);
-
 let stopping = false;
 async function stop() {
   if (stopping) return;
   stopping = true;
-  clearInterval(viewportTimer);
   await session.send('Page.stopScreencast').catch(() => {});
   fs.writeFileSync(path.join(dir, 'done'), '');
   await browser.close().catch(() => {});
