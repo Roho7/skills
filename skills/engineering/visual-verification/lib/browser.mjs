@@ -5,7 +5,12 @@ import path from 'node:path';
 import { CHROME_PROFILE_DIR, config, isPortOpen, OpError, pidAlive, readJson, relPath, requireAuth, SKILL_DIR, stateFile, writeJson } from './core.mjs';
 
 export const STATE = () => stateFile('browser.json');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const NETWORK_LOG = () => stateFile('network.jsonl');
 export const VIEWPORTS = { desktop: { width: 1440, height: 900 }, mobile: { width: 390, height: 844 } };
+const DEFAULT_EMULATION = { ...VIEWPORTS.desktop, colorScheme: null, reducedMotion: null };
+const mockHits = [];
+export const emulation = () => ({ ...DEFAULT_EMULATION, ...readJson(STATE(), {}).emulation });
 
 const CHROME_CANDIDATES = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -86,7 +91,7 @@ async function start(flags = {}) {
   child.unref();
   await waitForCdp();
   const entry = { pid: child.pid, headed: !!flags.headed, cdp: CDP, profile: CHROME_PROFILE_DIR, startedAt: new Date().toISOString() };
-  writeJson(STATE(), entry);
+  writeJson(STATE(), { ...readJson(STATE(), {}), ...entry });
   return { status: 'started', ...entry };
 }
 
@@ -96,6 +101,37 @@ export async function tabId(p) {
     return (await session.send('Target.getTargetInfo')).targetInfo.targetId;
   } finally {
     await session.detach();
+  }
+}
+
+// A viewport override lasts only as long as the CDP connection that set it, and every shot command is its own
+// process. Between commands the page would reflow at the window size, and a page that re-renders at a JS breakpoint
+// loses its scroll position. A detached keeper process holds the override for as long as the tab lives.
+async function keepViewport(p, size) {
+  const tab = await tabId(p);
+  const { keeper } = readJson(STATE(), {});
+  if (keeper && pidAlive(keeper.pid) && keeper.tab === tab && keeper.width === size.width && keeper.height === size.height) return;
+  if (keeper && pidAlive(keeper.pid)) {
+    process.kill(keeper.pid, 'SIGTERM');
+    for (let waited = 0; waited < 3000 && pidAlive(keeper.pid); waited += 50) await sleep(50);
+  }
+  const child = spawn(process.execPath, [path.join(SKILL_DIR, 'lib/keeper.mjs'), JSON.stringify({ url: `${CDP.replace(/^http/, 'ws')}/devtools/page/${tab}`, ...size })], { detached: true, stdio: 'ignore' });
+  child.unref();
+  writeJson(STATE(), { ...readJson(STATE(), {}), keeper: { pid: child.pid, tab, ...size } });
+  for (let waited = 0; waited < 10_000; waited += 100) {
+    if (await p.evaluate(([w, h]) => innerWidth === w && innerHeight === h, [size.width, size.height])) return;
+    await sleep(100);
+  }
+  throw new OpError(`The viewport did not change to ${size.width}x${size.height}`, 'Run `shot browser stop` and retry.');
+}
+
+async function routeMocks(p) {
+  for (const entry of readJson(STATE(), {}).mocks ?? []) {
+    await p.route(entry.url, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      mockHits.push(route.request().url());
+      return route.fulfill({ status: entry.status, contentType: entry.contentType, body: entry.body });
+    });
   }
 }
 
@@ -111,12 +147,22 @@ export async function page() {
     p = await context.newPage();
     writeJson(STATE(), { ...readJson(STATE(), {}), tab: await tabId(p) });
   }
-  await p.setViewportSize(VIEWPORTS[readJson(STATE(), {}).viewport] ?? VIEWPORTS.desktop);
+  const { width, height, colorScheme, reducedMotion } = emulation();
+  await keepViewport(p, { width, height });
+  await p.emulateMedia({ colorScheme, reducedMotion });
+  await routeMocks(p);
   return p;
 }
 
-function rememberViewport(name) {
-  writeJson(STATE(), { ...readJson(STATE(), {}), viewport: name });
+function parseEmulation(flags) {
+  let size = flags.mobile ? VIEWPORTS.mobile : VIEWPORTS.desktop;
+  if (flags.viewport) {
+    const [, w, h] = String(flags.viewport).match(/^(\d+)x(\d+)$/) ?? [];
+    if (!w) throw new OpError(`Bad --viewport "${flags.viewport}"`, 'Use WIDTHxHEIGHT in CSS pixels, e.g. --viewport 1280x800.');
+    size = { width: Number(w), height: Number(h) };
+  }
+  const colorScheme = flags.dark ? 'dark' : flags.light ? 'light' : null;
+  return { ...size, colorScheme, reducedMotion: flags['reduced-motion'] ? 'reduce' : null };
 }
 
 function toUrl(target, flags) {
@@ -125,9 +171,29 @@ function toUrl(target, flags) {
   return new URL(target.startsWith('/') ? target : `/${target}`, base).toString();
 }
 
+const NETWORK_LOG_MAX = 500;
+
+function logEntry(request, extra) {
+  const postData = request.postData();
+  return { method: request.method(), url: request.url(), type: request.resourceType(), ...extra, ...(postData ? { postData: postData.slice(0, 300) } : {}) };
+}
+
+function appendNetworkLog(entries) {
+  if (!entries.length) return;
+  const kept = [...readNetworkLog(), ...entries].slice(-NETWORK_LOG_MAX);
+  fs.writeFileSync(NETWORK_LOG(), kept.map((e) => JSON.stringify(e)).join('\n') + '\n');
+}
+
+function readNetworkLog() {
+  if (!fs.existsSync(NETWORK_LOG())) return [];
+  return fs.readFileSync(NETWORK_LOG(), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+}
+
 function watch(p) {
   const consoleErrors = [];
   const failedRequests = [];
+  const requests = [];
+  const hitsBefore = mockHits.length;
   let threw = false;
   const listeners = {
     console: (m) => m.type() === 'error' && consoleErrors.push(m.text().slice(0, 300)),
@@ -135,18 +201,62 @@ function watch(p) {
       threw = true;
       consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`);
     },
-    requestfailed: (r) => failedRequests.push({ url: r.url(), error: r.failure()?.errorText }),
-    response: (r) => r.status() >= 400 && failedRequests.push({ url: r.url(), status: r.status() }),
+    requestfailed: (r) => {
+      failedRequests.push({ url: r.url(), error: r.failure()?.errorText });
+      requests.push(logEntry(r, { status: null, error: r.failure()?.errorText }));
+    },
+    response: (r) => {
+      if (r.status() >= 400) failedRequests.push({ url: r.url(), status: r.status() });
+      requests.push(logEntry(r.request(), { status: r.status() }));
+    },
   };
   for (const [event, fn] of Object.entries(listeners)) p.on(event, fn);
   return () => {
     for (const [event, fn] of Object.entries(listeners)) p.off(event, fn);
+    appendNetworkLog(requests);
+    const mocked = mockHits.slice(hitsBefore);
     return {
       ...(threw ? { ok: false, error: 'The page threw during this action (see consoleErrors)' } : {}),
       consoleErrors: consoleErrors.slice(0, 20),
       failedRequests: failedRequests.slice(0, 20),
+      ...(mocked.length ? { mocked } : {}),
     };
   };
+}
+
+// 150ms without a scroll event also ends the wait, for engines without scrollend. The two frames let the compositor
+// paint the final position before a screenshot.
+async function scrolledBy(p, act) {
+  await p.evaluate(() => {
+    window.__shotScroll = new Promise((resolve) => {
+      const timers = { quiet: null, noScroll: null, cap: null };
+      let target = null;
+      const listeners = {
+        scroll: (e) => {
+          target = e.target;
+          clearTimeout(timers.noScroll);
+          clearTimeout(timers.quiet);
+          timers.quiet = setTimeout(() => listeners.scrollend(), 150);
+        },
+        scrollend: () => {
+          for (const [event, fn] of Object.entries(listeners)) removeEventListener(event, fn, true);
+          for (const id of Object.values(timers)) clearTimeout(id);
+          resolve(target);
+        },
+      };
+      timers.noScroll = setTimeout(() => listeners.scrollend(), 500);
+      timers.cap = setTimeout(() => listeners.scrollend(), 5000);
+      for (const [event, fn] of Object.entries(listeners)) addEventListener(event, fn, true);
+    });
+  });
+  await act();
+  return p.evaluate(async () => {
+    const moved = await window.__shotScroll;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const el = !moved || moved === document ? document.scrollingElement : moved;
+    const scroller = el === document.scrollingElement ? 'window' : el.id ? `#${el.id}` : el.tagName.toLowerCase() + (el.className ? `.${String(el.className).trim().split(/\s+/).join('.')}` : '');
+    return { scroller, scrollY: Math.round(el.scrollTop), scrollHeight: el.scrollHeight };
+  });
 }
 
 async function openedPage() {
@@ -173,7 +283,9 @@ async function focused(p) {
 async function open(positional, flags) {
   const target = positional[0];
   if (!target) throw new OpError('Missing path or URL', 'Usage: shot open /products [--mobile]');
-  rememberViewport(flags.mobile ? 'mobile' : 'desktop');
+  const emulated = parseEmulation(flags);
+  writeJson(STATE(), { ...readJson(STATE(), {}), emulation: emulated });
+  fs.rmSync(NETWORK_LOG(), { force: true });
   const p = await page();
   const finishWatch = watch(p);
 
@@ -193,7 +305,9 @@ async function open(positional, flags) {
     status: response?.status() ?? null,
     title: await p.title(),
     ms: Date.now() - started,
-    viewport: flags.mobile ? 'mobile' : 'desktop',
+    viewport: `${emulated.width}x${emulated.height}`,
+    ...(emulated.colorScheme ? { colorScheme: emulated.colorScheme } : {}),
+    ...(emulated.reducedMotion ? { reducedMotion: emulated.reducedMotion } : {}),
     ...finishWatch(),
     next: 'shot snapshot  |  shot screenshot',
   };
@@ -359,18 +473,18 @@ async function scroll(_positional, flags) {
   const p = await openedPage();
   const finishWatch = watch(p);
   let target = null;
+  let position;
   if (flags.to || flags.selector) {
     target = await pick(flags.selector ? p.locator(String(flags.selector)) : p.getByText(String(flags.to), { exact: !!flags.exact }), flags, 'element');
-    await target.scrollIntoViewIfNeeded({ timeout: 10_000 });
+    position = await scrolledBy(p, () => target.scrollIntoViewIfNeeded({ timeout: 10_000 }));
   } else if (flags.by !== undefined) {
-    await p.mouse.wheel(0, Number(flags.by));
-    let last = null;
-    for (let waited = 0; waited < 2000 && last !== (last = await p.evaluate(() => scrollY)); waited += 100) await new Promise((r) => setTimeout(r, 100));
+    const { width, height } = emulation();
+    await p.mouse.move(width / 2, height / 2);
+    position = await scrolledBy(p, () => p.mouse.wheel(0, Number(flags.by)));
   } else {
     throw new OpError('Nothing to scroll to', 'Usage: shot scroll --by 800  |  shot scroll --to "Pricing"  |  shot scroll --selector "css"');
   }
   const settled = await settle(p, finishWatch);
-  const position = await p.evaluate(() => ({ scrollY: Math.round(scrollY), scrollHeight: document.documentElement.scrollHeight }));
   const inView = target ? await target.evaluate((el) => ((r) => r.bottom > 0 && r.top < innerHeight)(el.getBoundingClientRect())) : null;
   return { ...position, inView, ...settled };
 }
@@ -383,6 +497,43 @@ async function expectText(positional, flags) {
   const started = Date.now();
   const met = await all.first().waitFor({ state: flags.gone ? 'hidden' : 'visible', timeout: Number(flags.timeout ?? 10) * 1000 }).then(() => true, () => false);
   return { ok: met, found: (await all.count()) > 0, role: flags.role ?? 'text', name, gone: !!flags.gone, waitedMs: Date.now() - started };
+}
+
+function network(_positional, flags) {
+  const filter = flags.filter ? String(flags.filter) : null;
+  const all = readNetworkLog();
+  const shown = all.filter((e) => (flags.all || ['document', 'fetch', 'xhr', 'eventsource', 'websocket'].includes(e.type)) && (!filter || e.url.includes(filter)) && (!flags.failed || e.status === null || e.status >= 400));
+  const max = Number(flags.max ?? 50);
+  return { total: all.length, shown: Math.min(shown.length, max), requests: shown.slice(-max), next: shown.length ? 'shot network --filter <text>' : 'drive the page with shot open/click/type, then shot network' };
+}
+
+function mock(positional, flags) {
+  const url = positional[0];
+  if (!url) throw new OpError('Missing URL pattern', 'Usage: shot mock "**/api/orders" --body \'{"orders":[]}\' [--status 200]');
+  if (flags.body !== undefined && flags.file) throw new OpError('Pass --body or --file, not both');
+  const body = flags.file ? fs.readFileSync(path.resolve(String(flags.file)), 'utf8') : String(flags.body ?? '');
+  const isJson = (() => {
+    try {
+      JSON.parse(body);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  const entry = { url, status: Number(flags.status ?? 200), contentType: flags.type ? String(flags.type) : isJson ? 'application/json' : 'text/plain', body };
+  const mocks = [...(readJson(STATE(), {}).mocks ?? []).filter((m) => m.url !== url), entry];
+  writeJson(STATE(), { ...readJson(STATE(), {}), mocks });
+  return { mocks: mocks.map(({ body: b, ...m }) => ({ ...m, bytes: Buffer.byteLength(b) })), next: 'shot open <path> (mocks apply to GET requests made while a shot command runs)' };
+}
+
+function mockList() {
+  return { mocks: (readJson(STATE(), {}).mocks ?? []).map(({ body, ...m }) => ({ ...m, bytes: Buffer.byteLength(body) })) };
+}
+
+function mockClear() {
+  const { mocks = [] } = readJson(STATE(), {});
+  writeJson(STATE(), { ...readJson(STATE(), {}), mocks: [] });
+  return { cleared: mocks.length };
 }
 
 async function reset(_positional, flags) {
@@ -449,12 +600,13 @@ async function otherTabs(ownTab) {
 
 async function stop() {
   const entry = readJson(STATE(), {});
+  if (pidAlive(entry.keeper?.pid)) process.kill(entry.keeper.pid, 'SIGTERM');
   if (!(await isPortOpen(config.cdpPort))) {
     writeJson(STATE(), {});
     return { status: 'not_running' };
   }
   if (entry.tab) await fetch(`${CDP}/json/close/${entry.tab}`).catch(() => {});
-  writeJson(STATE(), { ...entry, tab: undefined });
+  writeJson(STATE(), { ...entry, tab: undefined, keeper: undefined });
   const others = await otherTabs(entry.tab);
   if (entry.pid && pidAlive(entry.pid) && others.length === 0) {
     process.kill(entry.pid, 'SIGTERM');
@@ -556,8 +708,10 @@ shot scroll --by <px>
 shot scroll --to "<visible text>" [--exact] [--nth N]
 shot scroll --selector "<css>" [--nth N]
 
---by sends wheel events, so scroll handlers and lazy loading fire. Returns scrollY, scrollHeight,
-inView (for --to and --selector), and console and network errors.`,
+--by sends wheel events at the viewport centre, so scroll handlers and lazy loading fire. Returns once
+the scroll has ended and painted, so a screenshot right after shows the new position. Reports the
+scroller that moved ("window" or the element), its scrollY and scrollHeight, inView (for --to and
+--selector), and console and network errors.`,
     run: scroll,
   },
   expect: {
@@ -569,16 +723,46 @@ shot expect "<text>" [--role status|alert|dialog|…] [--exact] [--gone] [--time
 Use it after an action instead of guessing how long async UI takes to settle.`,
     run: expectText,
   },
+  network: {
+    summary: 'Requests the page made during shot commands since the last open (method, URL, status)',
+    booleans: ['all', 'failed'],
+    usage: `
+shot network [--filter <text>] [--failed] [--all] [--max 50]
+
+Lists requests seen while open, click, type, press and scroll ran, oldest first, with method, URL,
+status, resource type and the first 300 characters of a request body. Shows documents, fetch, XHR,
+event streams and websockets by default; --all adds scripts, styles, images and fonts.
+--failed keeps ≥400 and aborted requests. Use it to prove a click sent the request you expect.
+Requests made between commands (polling while no shot command runs) are not seen.`,
+    run: network,
+  },
+  mock: {
+    summary: 'Fulfil GET requests matching a URL pattern with a fixed response (sticks until mock clear)',
+    usage: `
+shot mock "<url glob>" [--body '<text or json>' | --file response.json] [--status 200] [--type content/type]
+shot mock list
+shot mock clear
+
+The pattern is a Playwright URL glob ("**/api/orders*"). Only GET requests are mocked; other methods
+reach the server. Use it to render empty, error and edge states without touching backend data.
+Mocks apply to requests made while a shot command runs, so set them before \`shot open\`. Commands
+report the URLs they mocked as "mocked".`,
+    run: mock,
+  },
+  'mock list': { summary: 'List active mocks', usage: 'shot mock list', run: mockList },
+  'mock clear': { summary: 'Remove every mock', usage: 'shot mock clear', run: mockClear },
   open: {
     summary: 'Navigate the browser to a path or URL; reports console + network errors',
-    booleans: ['mobile'],
+    booleans: ['mobile', 'dark', 'light', 'reduced-motion'],
     usage: `
-shot open <path|url> [--mobile] [--base http://localhost:3000] [--timeout 60]
+shot open <path|url> [--mobile | --viewport 1280x800] [--dark | --light] [--reduced-motion]
+                     [--base http://localhost:3000] [--timeout 60]
 
 Paths resolve against ${config.baseUrl}. Waits for load + network idle (≤8s).
 Returns status, title, console errors and failed (≥400 / aborted) requests seen during the load.
-The page stays open for \`shot snapshot\` / \`shot screenshot\` / \`shot click\`, and the viewport
-(--mobile or desktop) sticks until the next \`shot open\`.
+The page stays open for \`shot snapshot\` / \`shot screenshot\` / \`shot click\`. The viewport
+(desktop 1440x900, --mobile 390x844, or --viewport), prefers-color-scheme and prefers-reduced-motion
+stick until the next \`shot open\`. open also clears the request log that \`shot network\` reads.
 Pages behind a login need the session from \`shot browser login\`; check with \`shot browser whoami\` (needs "auth" in .shot.json).`,
     run: open,
   },
