@@ -4,7 +4,8 @@ This public repo holds only skills Rohosen wrote or changed. Every skill he uses
 
 ## Where to edit
 
-Live paths (~/.agents/skills/<name>) resolve into library/, and a graduated skill resolves further into this checkout's working tree. A merged PR here is live only after git pull --ff-only in this checkout. Do that as the last step of any merge.
+- Edit skills in `library/skills/<group>/<name>/`, or through the live paths `~/.agents/skills/<name>` and `~/.claude/skills/<name>`. These link into the library, so both are the same files.
+- Live paths (~/.agents/skills/<name>) resolve into library/, and a graduated skill resolves further into this checkout's working tree. A merged PR here is live only after git pull --ff-only in this checkout. Do that as the last step of any merge.
 - A graduated skill's library entry is a symlink into `skills/<bucket>/<name>/` here. Editing it edits this repo, and the change is committed here.
 - `library/` has its own `README.md` and scripts (`link.mjs`, `build.mjs`, `update-vendor.sh`). Commit library changes in `library/`, never here.
 
