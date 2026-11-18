@@ -2,7 +2,7 @@
 
 Invoked at the end of every other playbook.
 
-Work from a git worktree off trunk, and keep unrelated work out of it. Rebase into small, landable commits. Run `/deslop` from `cursor-team-kit` over the diff before commit.
+Work from a git worktree off trunk, and keep unrelated work out of it. Rebase into small, landable commits. Run `/deslop` from `cursor-team-kit` over the diff before commit. Run `/no-comments` on the diff and fix the findings you accept before opening the PR.
 
 Title: `type(scope): subject`, naming a real symbol when one carries the change. Write the PR description using the `pr` skill's structure.
 
