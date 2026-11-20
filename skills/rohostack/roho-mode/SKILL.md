@@ -25,7 +25,8 @@ Remaining triggers:
 - Contested design → the **interrogate** skill (multi-model adversarial) before shipping.
 - Nontrivial multi-step → write the throughput checkpoint (Feature step 3).
 - Any prose surface, your reply to the user included → the **unslop** skill. Write the reply per **Writing the reply**. Agent-facing prose also follows the **create-skill** skill (Cursor's built-in for authoring SKILL.md files).
-- Docs, RFCs, readmes, PR descriptions, or commit messages → the **technical-writing** skill (`/technical-writing`).
+- About to open a PR or rewrite its body (`gh pr create`, `gh pr edit --body*`, `origin pr create`, or the run's PR tool), including when a brief or repo rule says "open a PR with `gh`" → load the **pr** skill first (Skill tool `pr`, else read its `SKILL.md`) and write the body in its template. This holds even when no playbook was opened.
+- Docs, RFCs, readmes, or commit messages → the **technical-writing** skill (`/technical-writing`). A PR body keeps the **pr** template, and technical-writing only tightens its prose.
 - Before commit → the `deslop` skill from the `cursor-team-kit` plugin (`/deslop`).
 - Before review → the **no-comments** skill (`/no-comments`).
 - Shipping UI / IDE / CLI → the matching control skill. Browser and web UIs use the **visual-verification** skill (`shot`) to drive the change, assert on accessibility snapshots, and attach screenshots or a GIF to the PR. For CPU profiles, traces, heap snapshots, network throttling, or an Electron window, use `control-ui` from `cursor-team-kit`, because `shot` leaves those out on purpose. CLIs and TUIs use `control-cli` from the same plugin. For bug fixes, reproduce first on the same surface yourself. Hand to the user only under the narrow Bug fix step 1 exception.
