@@ -25,6 +25,8 @@ claude plugin install rohostack@roho        # rohostack skills and subagents
 
 Some skills ship scripts with their own setup (for example `npm install` for `visual-verification`). Each one says so in its `SKILL.md` and `compatibility` field.
 
+Cursor cloud VMs use `scripts/cloud-bootstrap.sh`.
+
 ## Skills
 
 <!-- skills:start -->
